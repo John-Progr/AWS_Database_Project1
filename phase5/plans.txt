@@ -1,0 +1,430 @@
+Query 1
+EXPLAIN ANALYZE
+SELECT Host.id, COUNT(*)
+FROM Listing,Host
+WHERE Host.id=Listing.host_id GROUP BY Host.id;
+
+BEFORE INDEX
+----------------------------------------------------------------------------------------------------------------------------------------------
+"HashAggregate  (cost=3273.70..3337.33 rows=6363 width=12) (actual time=610.107..612.210 rows=6363 loops=1)"
+"  Group Key: host.id"
+"  ->  Hash Join  (cost=255.26..3215.99 rows=11541 width=4) (actual time=6.470..603.649 rows=11541 loops=1)"
+"        Hash Cond: (listing.host_id = host.id)"
+"        ->  Seq Scan on listing  (cost=0.00..2930.41 rows=11541 width=4) (actual time=0.010..589.030 rows=11541 loops=1)"
+"        ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=6.445..6.445 rows=6363 loops=1)"
+"              Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"              ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.014..4.655 rows=6363 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 0.254 ms"
+"Execution time: 614.075 ms"
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+AFTER INDEX
+"HashAggregate  (cost=652.69..716.32 rows=6363 width=12) (actual time=33.650..35.571 rows=6363 loops=1)"
+"  Group Key: host.id"
+"  ->  Hash Join  (cost=255.55..594.98 rows=11541 width=4) (actual time=6.718..29.373 rows=11541 loops=1)"
+"        Hash Cond: (listing.host_id = host.id)"
+"        ->  Index Only Scan using listing_host_id on listing  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.417..17.370 rows=11541 loops=1)"
+"              Heap Fetches: 0"
+"        ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=6.285..6.285 rows=6363 loops=1)"
+"              Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"              ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.014..4.494 rows=6363 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 4.802 ms"
+"Execution time: 37.960 ms"
+-------------------------------------------------------------------------------------------------------------------------------------------------
+/* Query 1: w/out index:614.075 ms, w/index:37.960 ms */
+-------------------------------------------------------------------------------------------------------------------------------------------------
+/*Αυτό το ευρετήριο θα κάνει την εκτέλεση του επερωτήματος πολύ γρηγορότερη.Δεν χρειαζόταν ευρετήριο στο host καθώς το Host.id είναι ηδη primary key
+Οπότε προσθέσαμε ευρετήριο στο Listing στο πεδίο host_id επειδή είναι στο where clause*/
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+Query 2
+EXPLAIN ANALYZE
+SELECT id, price 
+FROM Listing,Price
+WHERE guests_included > 5 AND price > 40;
+
+BEFORE INDEX
+---------------------------------------------------------------------------------------------------------------------------------------------------
+"Nested Loop  (cost=0.29..20248.56 rows=1569576 width=8) (actual time=0.052..1579.602 rows=2469774 loops=1)"
+"  ->  Index Only Scan using listings_pkey on listing  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.023..4.462 rows=11541 loops=1)"
+"        Heap Fetches: 0"
+"  ->  Materialize  (cost=0.00..319.80 rows=136 width=4) (actual time=0.000..0.044 rows=214 loops=11541)"
+"        ->  Seq Scan on price  (cost=0.00..319.12 rows=136 width=4) (actual time=0.024..1.426 rows=214 loops=1)"
+"              Filter: ((guests_included > 5) AND (price > '40'::numeric))"
+"              Rows Removed by Filter: 11327"
+"Planning time: 0.171 ms"
+"Execution time: 2115.016 ms"
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+AFTER INDEX
+
+"Nested Loop  (cost=0.57..19937.40 rows=1569576 width=8) (actual time=0.864..1553.639 rows=2469774 loops=1)"
+"  ->  Index Only Scan using listings_pkey on listing  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.816..14.266 rows=11541 loops=1)"
+"        Heap Fetches: 0"
+"  ->  Materialize  (cost=0.29..8.65 rows=136 width=4) (actual time=0.000..0.044 rows=214 loops=11541)"
+"        ->  Index Only Scan using price_guests_included on price  (cost=0.29..7.97 rows=136 width=4) (actual time=0.043..0.106 rows=214 loops=1)"
+"              Index Cond: ((guests_included > 5) AND (price > '40'::numeric))"
+"              Heap Fetches: 0"
+"Planning time: 1.787 ms"
+"Execution time: 1998.884 ms"
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+/* Query 2: w/out index:2115.016 ms, w/index:1998.884 ms */
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+/*Σε αυτο το query δοκιμάσαμε το ευρετήριο στο πεδίο guests_included,price,καθώς είναι παρα πολυ λιγες οι εγγραφές με αυτό το κριτήριο και δεν χρειάζεται
+να διαβάζει όλο τον πίνακα κάθε φορά,αλλά ο χρόνος εκτέλεσης έγινε ελάχιστα καλύτερος*/
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+Query 3
+EXPLAIN ANALYZE
+SELECT host.id,AVG(price.price)::integer as average_price,COUNT(listing.id) as host_listings_count
+FROM Host
+INNER JOIN Listing 
+ON Listing.host_id=Host.id
+INNER JOIN Price
+ON Price.listing_id=Listing.id
+FULL OUTER JOIN Review
+ON Review.listing_id=Listing.id
+WHERE Review.id IS NULL
+GROUP BY Host.id 
+HAVING COUNT(Listing.id)>10
+
+BEFORE INDEX
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+"GroupAggregate  (cost=31219.32..31219.35 rows=1 width=16) (actual time=1311.173..1313.481 rows=20 loops=1)"
+"  Group Key: host.id"
+"  Filter: (count(listing.id) > 10)"
+"  Rows Removed by Filter: 1513"
+"  ->  Sort  (cost=31219.32..31219.33 rows=1 width=12) (actual time=1311.109..1311.652 rows=2559 loops=1)"
+"        Sort Key: host.id"
+"        Sort Method: quicksort  Memory: 216kB"
+"        ->  Hash Full Join  (cost=3796.23..31219.31 rows=1 width=12) (actual time=1309.026..1310.051 rows=2559 loops=1)"
+"              Hash Cond: (review.listing_id = listing.id)"
+"              Filter: (review.id IS NULL)"
+"              Rows Removed by Filter: 414235"
+"              ->  Seq Scan on review  (cost=0.00..21727.35 rows=414235 width=8) (actual time=0.602..1123.635 rows=414235 loops=1)"
+"              ->  Hash  (cost=3651.97..3651.97 rows=11541 width=12) (actual time=43.828..43.828 rows=11541 loops=1)"
+"                    Buckets: 16384  Batches: 1  Memory Usage: 636kB"
+"                    ->  Hash Join  (cost=660.94..3651.97 rows=11541 width=12) (actual time=10.498..39.616 rows=11541 loops=1)"
+"                          Hash Cond: (listing.id = price.listing_id)"
+"                          ->  Hash Join  (cost=255.26..3215.99 rows=11541 width=8) (actual time=3.422..26.247 rows=11541 loops=1)"
+"                                Hash Cond: (listing.host_id = host.id)"
+"                                ->  Seq Scan on listing  (cost=0.00..2930.41 rows=11541 width=8) (actual time=0.005..16.882 rows=11541 loops=1)"
+"                                ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=3.403..3.403 rows=6363 loops=1)"
+"                                      Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"                                      ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.011..1.642 rows=6363 loops=1)"
+"                                            Heap Fetches: 0"
+"                          ->  Hash  (cost=261.41..261.41 rows=11541 width=8) (actual time=7.048..7.048 rows=11541 loops=1)"
+"                                Buckets: 16384  Batches: 1  Memory Usage: 624kB"
+"                                ->  Seq Scan on price  (cost=0.00..261.41 rows=11541 width=8) (actual time=0.003..3.425 rows=11541 loops=1)"
+"Planning time: 0.480 ms"
+"Execution time: 1313.572 ms"
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+AFTER INDEX
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+"GroupAggregate  (cost=38812.93..38812.96 rows=1 width=16) (actual time=1161.101..1163.372 rows=20 loops=1)"
+"  Group Key: host.id"
+"  Filter: (count(listing.id) > 10)"
+"  Rows Removed by Filter: 1513"
+"  ->  Sort  (cost=38812.93..38812.94 rows=1 width=12) (actual time=1161.037..1161.563 rows=2559 loops=1)"
+"        Sort Key: host.id"
+"        Sort Method: quicksort  Memory: 216kB"
+"        ->  Merge Full Join  (cost=4231.61..38812.92 rows=1 width=12) (actual time=48.462..1156.896 rows=2559 loops=1)"
+"              Merge Cond: (listing.id = review.listing_id)"
+"              Filter: (review.id IS NULL)"
+"              Rows Removed by Filter: 414235"
+"              ->  Merge Join  (cost=4231.18..5235.40 rows=11541 width=12) (actual time=40.271..60.391 rows=11541 loops=1)"
+"                    Merge Cond: (listing.id = price.listing_id)"
+"                    ->  Sort  (cost=4230.90..4259.75 rows=11541 width=8) (actual time=40.253..43.146 rows=11541 loops=1)"
+"                          Sort Key: listing.id"
+"                          Sort Method: quicksort  Memory: 925kB"
+"                          ->  Hash Join  (cost=255.55..3452.20 rows=11541 width=8) (actual time=8.669..35.863 rows=11541 loops=1)"
+"                                Hash Cond: (listing.host_id = host.id)"
+"                                ->  Index Scan using listings_pkey on listing  (cost=0.29..3166.62 rows=11541 width=8) (actual time=0.010..21.097 rows=11541 loops=1)"
+"                                ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=8.645..8.645 rows=6363 loops=1)"
+"                                      Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"                                      ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.009..6.894 rows=6363 loops=1)"
+"                                            Heap Fetches: 0"
+"                    ->  Index Scan using price_pkey on price  (cost=0.29..802.53 rows=11541 width=8) (actual time=0.014..7.103 rows=11541 loops=1)"
+"              ->  Index Scan using review_listing_id on review  (cost=0.42..28370.73 rows=414235 width=8) (actual time=1.842..981.738 rows=414235 loops=1)"
+"Planning time: 4.945 ms"
+"Execution time: 1163.449 ms"
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/* Query 3: w/out index:1313.572 ms, w/index:1163.449 ms */
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/*Σε αυτό το query βάλαμε ευρετήριο στον πίνακα review στο πεδίο listing_id και στον πίνακα listing στο πεδίο host_id δηλαδή σε πεδία που γίνεται το join
+και βλέπουμε οτι ο χρόνος βλετιώνεται απλά οχι παρα πολύ,στα άλλα πεδία δεν βάζουμε γιατι είναι primary keys στους πίνακες τους*/
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+Query 4
+EXPLAIN ANALYZE
+Select host.id,COUNT(Listing.id)
+from host
+inner join listing
+on host.id=listing.host_id
+Group by Host.id
+Having COUNT(Listing.id)>20
+
+BEFORE INDEX
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+"HashAggregate  (cost=3302.55..3366.18 rows=6363 width=12) (actual time=28.177..28.748 rows=35 loops=1)"
+"  Group Key: host.id"
+"  Filter: (count(listing.id) > 20)"
+"  Rows Removed by Filter: 6328"
+"  ->  Hash Join  (cost=255.26..3215.99 rows=11541 width=8) (actual time=3.499..23.660 rows=11541 loops=1)"
+"        Hash Cond: (listing.host_id = host.id)"
+"        ->  Seq Scan on listing  (cost=0.00..2930.41 rows=11541 width=8) (actual time=0.009..14.141 rows=11541 loops=1)"
+"        ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=3.457..3.457 rows=6363 loops=1)"
+"              Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"              ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.030..1.649 rows=6363 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 0.407 ms"
+"Execution time: 28.920 ms"
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+AFTER INDEX
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+"GroupAggregate  (cost=0.57..9684.61 rows=6363 width=12) (actual time=0.544..26.485 rows=35 loops=1)"
+"  Group Key: host.id"
+"  Filter: (count(listing.id) > 20)"
+"  Rows Removed by Filter: 6328"
+"  ->  Merge Join  (cost=0.57..9534.43 rows=11541 width=8) (actual time=0.023..22.638 rows=11541 loops=1)"
+"        Merge Cond: (host.id = listing.host_id)"
+"        ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.012..1.696 rows=6363 loops=1)"
+"              Heap Fetches: 0"
+"        ->  Index Scan using listing_host_id on listing  (cost=0.29..9198.53 rows=11541 width=8) (actual time=0.008..13.653 rows=11541 loops=1)"
+"Planning time: 0.228 ms"
+"Execution time: 26.534 ms"
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/* Query 4: w/out index:28.920 ms, w/index:26.534 ms */
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/*Σε αυτό το query,βάλαμε ευρετήριο στο listing στο πεδίο host_id μιας και είναι στο join,αλλα ο χρόνος εκτέλεσης δεν βελτιώθηκε σημαντικά*/
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+/*ΛΟΓΩ ΑΠΟΣΤΟΛΗΣ ΛΑΘΟΣ ΑΡΧΕΙΟΥ ΣΤΗΝ 5Η ΕΡΓΑΣΙΑ ΣΤΟ PART 2.SQL,ΔΕΝ ΠΕΡΙΕΙΧΕ ΤΑ ΚΑΤΩ 3 ΕΡΩΤΗΜΑΤΑ ΣΥΝΑΘΡΟΙΣΗΣ ΑΛΛΑ ΜΟΝΟ ΤΑ ΠΑΝΩ 2,ΣΑΣ ΠΑΡΑΘΕΤΟΥΜΕ ΑΥΤΑ ΠΟΥ ΕΙΧΕ ΤΟ ΣΩΣΤΟ ΑΡΧΕΙΟ*/
+Query 5
+EXPLAIN ANALYZE
+SELECT Room.listing_id,COUNT(Room_amenity.amenity_id)
+FROM Room
+INNER JOIN Room_amenity
+ON Room_amenity.listing_id=Room.listing_id
+INNER JOIN Price
+ON Room.listing_id=Price.listing_id
+WHERE Price.price>1000
+GROUP BY Room.listing_id
+
+BEFORE INDEX
+------------------------------------------------------------------------------------------------------------------------------------------------
+"HashAggregate  (cost=383.42..387.94 rows=452 width=12) (actual time=8.032..8.036 rows=7 loops=1)"
+"  Group Key: room.listing_id"
+"  ->  Nested Loop  (cost=0.71..381.16 rows=452 width=8) (actual time=2.626..7.961 rows=197 loops=1)"
+"        ->  Nested Loop  (cost=0.29..355.71 rows=18 width=8) (actual time=1.383..3.231 rows=7 loops=1)"
+"              ->  Seq Scan on price  (cost=0.00..290.26 rows=18 width=4) (actual time=0.657..1.652 rows=7 loops=1)"
+"                    Filter: (price > '1000'::numeric)"
+"                    Rows Removed by Filter: 11534"
+"              ->  Index Only Scan using room_pkey on room  (cost=0.29..3.64 rows=1 width=4) (actual time=0.224..0.224 rows=1 loops=7)"
+"                    Index Cond: (listing_id = price.listing_id)"
+"                    Heap Fetches: 0"
+"        ->  Index Only Scan using pk_room_amenity on room_amenity  (cost=0.42..1.15 rows=26 width=8) (actual time=0.655..0.663 rows=28 loops=7)"
+"              Index Cond: (listing_id = room.listing_id)"
+"              Heap Fetches: 0"
+"Planning time: 12.483 ms"
+"Execution time: 8.112 ms"
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+AFTER INDEX
+------------------------------------------------------------------------------------------------------------------------------------------------
+"HashAggregate  (cost=148.40..152.92 rows=452 width=12) (actual time=2.815..2.819 rows=7 loops=1)"
+"  Group Key: room.listing_id"
+"  ->  Nested Loop  (cost=5.13..146.14 rows=452 width=8) (actual time=0.785..2.747 rows=197 loops=1)"
+"        ->  Nested Loop  (cost=4.71..120.69 rows=18 width=8) (actual time=0.436..2.228 rows=7 loops=1)"
+"              ->  Bitmap Heap Scan on price  (cost=4.42..55.25 rows=18 width=4) (actual time=0.014..0.022 rows=7 loops=1)"
+"                    Recheck Cond: (price > '1000'::numeric)"
+"                    Heap Blocks: exact=4"
+"                    ->  Bitmap Index Scan on price_price  (cost=0.00..4.42 rows=18 width=0) (actual time=0.009..0.009 rows=7 loops=1)"
+"                          Index Cond: (price > '1000'::numeric)"
+"              ->  Index Only Scan using room_pkey on room  (cost=0.29..3.64 rows=1 width=4) (actual time=0.314..0.314 rows=1 loops=7)"
+"                    Index Cond: (listing_id = price.listing_id)"
+"                    Heap Fetches: 0"
+"        ->  Index Only Scan using pk_room_amenity on room_amenity  (cost=0.42..1.15 rows=26 width=8) (actual time=0.055..0.062 rows=28 loops=7)"
+"              Index Cond: (listing_id = room.listing_id)"
+"              Heap Fetches: 0"
+"Planning time: 6.172 ms"
+"Execution time: 3.419 ms"
+--------------------------------------------------------------------------------------------------------------------------------------------------
+/* Query 5: w/out index:8.112 ms, w/index:3.419 ms */
+--------------------------------------------------------------------------------------------------------------------------------------------------
+/*Σε αυτο το query,δοκιμάσαμε ευρετήριο στον πίνακα Price στο πεδίο price,άλλο δεν χρειάστηκε αφου και στα joins όλα είναι primary keys στους αντίστοιχους πίνακες
+Ο χρόνος εκτέλεσης μειώθηκε σε καλύτερο απο τον μισό χρόνο*/
+
+
+
+
+
+
+
+
+
+Query 6
+EXPLAIN ANALYZE
+select DISTINCT(geolocation.*)
+from geolocation
+inner join neighbourhood
+on geolocation.properties_neighbourhood=neighbourhood.neighbourhood
+inner join location
+on neighbourhood.neighbourhood=location.neighbourhood_cleansed
+inner join room
+on room.listing_id=location.listing_id
+inner join room_amenity
+on room_amenity.listing_id=room.listing_id
+where room_amenity.listing_id in (select listing_id from room_amenity group by listing_id having count(amenity_id)>50)
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+BEFORE INDEX
+"HashAggregate  (cost=226507.99..226508.44 rows=45 width=2899) (actual time=649.197..649.307 rows=31 loops=1)"
+"  Group Key: geolocation.type, geolocation.geometry_type, geolocation.geometry_coordinates_0_0_0_0, geolocation.geometry_coordinates_0_0_0_1, geolocation.geometry_coordinates_0_0_1_0, geolocation.geometry_coordinates_0_0_1_1, geolocation.geometry_coordinates_0_0_2_0, geolocation.geometry_coordinates_0_0_2_1, geolocation.geometry_coordinates_0_0_3_0, geolocation.geometry_coordinates_0_0_3_1, geolocation.geometry_coordinates_0_0_4_0, geolocation.geometry_coordinates_0_0_4_1, geolocation.geometry_coordinates_0_0_5_0, geolocation.geometry_coordinates_0_0_5_1, geolocation.geometry_coordinates_0_0_6_0, geolocation.geometry_coordinates_0_0_6_1, geolocation.geometry_coordinates_0_0_7_0, geolocation.geometry_coordinates_0_0_7_1, geolocation.geometry_coordinates_0_0_8_0, geolocation.geometry_coordinates_0_0_8_1, geolocation.geometry_coordinates_0_0_9_0, geolocation.geometry_coordinates_0_0_9_1, geolocation.geometry_coordinates_0_0_10_0, geolocation.geometry_coordinates_0_0_10_1, geolocation.geometry_coordinates_0_0_11_0, geolocation.geometry_coordinates_0_0_11_1, geolocation.geometry_coordinates_0_0_12_0, geolocation.geometry_coordinates_0_0_12_1, geolocation.geometry_coordinates_0_0_13_0, geolocation.geometry_coordinates_0_0_13_1, geolocation.geometry_coordinates_0_0_14_0, geolocation.geometry_coordinates_0_0_14_1, geolocation.geometry_coordinates_0_0_15_0, geolocation.geometry_coordinates_0_0_15_1, geolocation.geometry_coordinates_0_0_16_0, geolocation.geometry_coordinates_0_0_16_1, geolocation.geometry_coordinates_0_0_17_0, geolocation.geometry_coordinates_0_0_17_1, geolocation.geometry_coordinates_0_0_18_0, geolocation.geometry_coordinates_0_0_18_1, geolocation.geometry_coordinates_0_0_19_0, geolocation.geometry_coordinates_0_0_19_1, geolocation.geometry_coordinates_0_0_20_0, geolocation.geometry_coordinates_0_0_20_1, geolocation.geometry_coordinates_0_0_21_0, geolocation.geometry_coordinates_0_0_21_1, geolocation.geometry_coordinates_0_0_22_0, geolocation.geometry_coordinates_0_0_22_1, geolocation.geometry_coordinates_0_0_23_0, geolocation.geometry_coordinates_0_0_23_1, geolocation.geometry_coordinates_0_0_24_0, geolocation.geometry_coordinates_0_0_24_1, geolocation.geometry_coordinates_0_0_25_0, geolocation.geometry_coordinates_0_0_25_1, geolocation.geometry_coordinates_0_0_26_0, geolocation.geometry_coordinates_0_0_26_1, geolocation.geometry_coordinates_0_0_27_0, geolocation.geometry_coordinates_0_0_27_1, geolocation.geometry_coordinates_0_0_28_0, geolocation.geometry_coordinates_0_0_28_1, geolocation.properties_neighbourhood, geolocation.properties_neighbourhood_group, geolocation.geometry_coordinates_0_0_29_0, geolocation.geometry_coordinates_0_0_29_1, geolocation.geometry_coordinates_0_0_30_0, geolocation.geometry_coordinates_0_0_30_1, geolocation.geometry_coordinates_0_0_31_0, geolocation.geometry_coordinates_0_0_31_1, geolocation.geometry_coordinates_0_0_32_0, geolocation.geometry_coordinates_0_0_32_1, geolocation.geometry_coordinates_0_0_33_0, geolocation.geometry_coordinates_0_0_33_1, geolocation.geometry_coordinates_0_0_34_0, geolocation.geometry_coordinates_0_0_34_1, geolocation.geometry_coordinates_0_0_35_0, geolocation.geometry_coordinates_0_0_35_1, geolocation.geometry_coordinates_0_0_36_0, geolocation.geometry_coordinates_0_0_36_1, geolocation.geometry_coordinates_0_0_37_0, geolocation.geometry_coordinates_0_0_37_1, geolocation.geometry_coordinates_0_0_38_0, geolocation.geometry_coordinates_0_0_38_1, geolocation.geometry_coordinates_0_0_39_0, geolocation.geometry_coordinates_0_0_39_1, geolocation.geometry_coordinates_0_0_40_0, geolocation.geometry_coordinates_0_0_40_1, geolocation.geometry_coordinates_0_0_41_0, geolocation.geometry_coordinates_0_0_41_1, geolocation.geometry_coordinates_0_0_42_0, geolocation.geometry_coordinates_0_0_42_1, geolocation.geometry_coordinates_0_0_43_0, geolocation.geometry_coordinates_0_0_43_1, geolocation.geometry_coordinates_0_0_44_0, geolocation.geometry_coordinates_0_0_44_1, geolocation.geometry_coordinates_0_0_45_0, geolocation.geometry_coordinates_0_0_45_1, geolocation.geometry_coordinates_0_0_46_0, geolocation.geometry_coordinates_0_0_46_1, geolocation.geometry_coordinates_0_0_47_0, geolocation.geometry_coordinates_0_0_47_1, geolocation.geometry_coordinates_0_0_48_0, geolocation.geometry_coordinates_0_0_48_1, geolocation.geometry_coordinates_0_0_49_0, geolocation.geometry_coordinates_0_0_49_1, geolocation.geometry_coordinates_0_0_50_0, geolocation.geometry_coordinates_0_0_50_1, geolocation.geometry_coordinates_0_0_51_0, geolocation.geometry_coordinates_0_0_51_1, geolocation.geometry_coordinates_0_0_52_0, geolocation.geometry_coordinates_0_0_52_1, geolocation.geometry_coordinates_0_0_53_0, geolocation.geometry_coordinates_0_0_53_1, geolocation.geometry_coordinates_0_0_54_0, geolocation.geometry_coordinates_0_0_54_1, geolocation.geometry_coordinates_0_0_55_0, geolocation.geometry_coordinates_0_0_55_1, geolocation.geometry_coordinates_0_0_56_0, geolocation.geometry_coordinates_0_0_56_1, geolocation.geometry_coordinates_0_0_57_0, geolocation.geometry_coordinates_0_0_57_1, geolocation.geometry_coordinates_0_0_58_0, geolocation.geometry_coordinates_0_0_58_1, geolocation.geometry_coordinates_0_0_59_0, geolocation.geometry_coordinates_0_0_59_1, geolocation.geometry_coordinates_0_0_60_0, geolocation.geometry_coordinates_0_0_60_1, geolocation.geometry_coordinates_0_0_61_0, geolocation.geometry_coordinates_0_0_61_1, geolocation.geometry_coordinates_0_0_62_0, geolocation.geometry_coordinates_0_0_62_1, geolocation.geometry_coordinates_0_0_63_0, geolocation.geometry_coordinates_0_0_63_1, geolocation.geometry_coordinates_0_0_64_0, geolocation.geometry_coordinates_0_0_64_1, geolocation.geometry_coordinates_0_0_65_0, geolocation.geometry_coordinates_0_0_65_1, geolocation.geometry_coordinates_0_0_66_0, geolocation.geometry_coordinates_0_0_66_1, geolocation.geometry_coordinates_0_0_67_0, geolocation.geometry_coordinates_0_0_67_1, geolocation.geometry_coordinates_0_0_68_0, geolocation.geometry_coordinates_0_0_68_1, geolocation.geometry_coordinates_0_0_69_0, geolocation.geometry_coordinates_0_0_69_1, geolocation.geometry_coordinates_0_0_70_0, geolocation.geometry_coordinates_0_0_70_1, geolocation.geometry_coordinates_0_0_71_0, geolocation.geometry_coordinates_0_0_71_1, geolocation.geometry_coordinates_0_0_72_0, geolocation.geometry_coordinates_0_0_72_1, geolocation.geometry_coordinates_0_0_73_0, geolocation.geometry_coordinates_0_0_73_1, geolocation.geometry_coordinates_0_0_74_0, geolocation.geometry_coordinates_0_0_74_1, geolocation.geometry_coordinates_0_0_75_0, geolocation.geometry_coordinates_0_0_75_1, geolocation.geometry_coordinates_0_0_76_0, geolocation.geometry_coordinates_0_0_76_1, geolocation.geometry_coordinates_0_0_77_0, geolocation.geometry_coordinates_0_0_77_1, geolocation.geometry_coordinates_0_0_78_0, geolocation.geometry_coordinates_0_0_78_1, geolocation.geometry_coordinates_0_0_79_0, geolocation.geometry_coordinates_0_0_79_1, geolocation.geometry_coordinates_0_0_80_0, geolocation.geometry_coordinates_0_0_80_1, geolocation.geometry_coordinates_0_0_81_0, geolocation.geometry_coordinates_0_0_81_1, geolocation.geometry_coordinates_0_0_82_0, geolocation.geometry_coordinates_0_0_82_1, geolocation.geometry_coordinates_0_0_83_0, geolocation.geometry_coordinates_0_0_83_1, geolocation.geometry_coordinates_0_0_84_0, geolocation.geometry_coordinates_0_0_84_1, geolocation.geometry_coordinates_0_0_85_0, geolocation.geometry_coordinates_0_0_85_1, geolocation.geometry_coordinates_0_0_86_0, geolocation.geometry_coordinates_0_0_86_1, geolocation.geometry_coordinates_0_0_87_0, geolocation.geometry_coordinates_0_0_87_1, geolocation.geometry_coordinates_0_0_88_0, geolocation.geometry_coordinates_0_0_88_1, geolocation.geometry_coordinates_0_0_89_0, geolocation.geometry_coordinates_0_0_89_1, geolocation.geometry_coordinates_0_0_90_0, geolocation.geometry_coordinates_0_0_90_1, geolocation.geometry_coordinates_0_0_91_0, geolocation.geometry_coordinates_0_0_91_1, geolocation.geometry_coordinates_0_0_92_0, geolocation.geometry_coordinates_0_0_92_1, geolocation.geometry_coordinates_0_0_93_0, geolocation.geometry_coordinates_0_0_93_1, geolocation.geometry_coordinates_0_0_94_0, geolocation.geometry_coordinates_0_0_94_1, geolocation.geometry_coordinates_0_0_95_0, geolocation.geometry_coordinates_0_0_95_1, geolocation.geometry_coordinates_0_0_96_0, geolocation.geometry_coordinates_0_0_96_1, geolocation.geometry_coordinates_0_0_97_0, geolocation.geometry_coordinates_0_0_97_1, geolocation.geometry_coordinates_0_0_98_0, geolocation.geometry_coordinates_0_0_98_1, geolocation.geometry_coordinates_0_0_99_0, geolocation.geometry_coordinates_0_0_99_1, geolocation.geometry_coordinates_0_0_100_0, geolocation.geometry_coordinates_0_0_100_1, geolocation.geometry_coordinates_0_0_101_0, geolocation.geometry_coordinates_0_0_101_1, geolocation.geometry_coordinates_0_0_102_0, geolocation.geometry_coordinates_0_0_102_1, geolocation.geometry_coordinates_0_0_103_0, geolocation.geometry_coordinates_0_0_103_1, geolocation.geometry_coordinates_0_0_104_0, geolocation.geometry_coordinates_0_0_104_1, geolocation.geometry_coordinates_0_0_105_0, geolocation.geometry_coordinates_0_0_105_1, geolocation.geometry_coordinates_0_0_106_0, geolocation.geometry_coordinates_0_0_106_1, geolocation.geometry_coordinates_0_0_107_0, geolocation.geometry_coordinates_0_0_107_1, geolocation.geometry_coordinates_0_0_108_0, geolocation.geometry_coordinates_0_0_108_1, geolocation.geometry_coordinates_0_0_109_0, geolocation.geometry_coordinates_0_0_109_1, geolocation.geometry_coordinates_0_0_110_0, geolocation.geometry_coordinates_0_0_110_1, geolocation.geometry_coordinates_0_0_111_0, geolocation.geometry_coordinates_0_0_111_1, geolocation.geometry_coordinates_0_0_112_0, geolocation.geometry_coordinates_0_0_112_1, geolocation.geometry_coordinates_0_0_113_0, geolocation.geometry_coordinates_0_0_113_1, geolocation.geometry_coordinates_0_0_114_0, geolocation.geometry_coordinates_0_0_114_1, geolocation.geometry_coordinates_0_0_115_0, geolocation.geometry_coordinates_0_0_115_1, geolocation.geometry_coordinates_0_0_116_0, geolocation.geometry_coordinates_0_0_116_1, geolocation.geometry_coordinates_0_0_117_0, geolocation.geometry_coordinates_0_0_117_1, geolocation.geometry_coordinates_0_0_118_0, geolocation.geometry_coordinates_0_0_118_1, geolocation.geometry_coordinates_0_0_119_0, geolocation.geometry_coordinates_0_0_119_1, geolocation.geometry_coordinates_0_0_120_0, geolocation.geometry_coordinates_0_0_120_1, geolocation.geometry_coordinates_0_0_121_0, geolocation.geometry_coordinates_0_0_121_1, geolocation.geometry_coordinates_0_0_122_0, geolocation.geometry_coordinates_0_0_122_1, geolocation.geometry_coordinates_0_0_123_0, geolocation.geometry_coordinates_0_0_123_1, geolocation.geometry_coordinates_0_0_124_0, geolocation.geometry_coordinates_0_0_124_1, geolocation.geometry_coordinates_0_0_125_0, geolocation.geometry_coordinates_0_0_125_1, geolocation.geometry_coordinates_0_0_126_0, geolocation.geometry_coordinates_0_0_126_1, geolocation.geometry_coordinates_0_0_127_0, geolocation.geometry_coordinates_0_0_127_1, geolocation.geometry_coordinates_0_0_128_0, geolocation.geometry_coordinates_0_0_128_1, geolocation.geometry_coordinates_0_0_129_0, geolocation.geometry_coordinates_0_0_129_1, geolocation.geometry_coordinates_0_0_130_0, geolocation.geometry_coordinates_0_0_130_1, geolocation.geometry_coordinates_0_0_131_0, geolocation.geometry_coordinates_0_0_131_1, geolocation.geometry_coordinates_0_0_132_0, geolocation.geometry_coordinates_0_0_132_1, geolocation.geometry_coordinates_0_0_133_0, geolocation.geometry_coordinates_0_0_133_1, geolocation.geometry_coordinates_0_0_134_0, geolocation.geometry_coordinates_0_0_134_1, geolocation.geometry_coordinates_0_0_135_0, geolocation.geometry_coordinates_0_0_135_1, geolocation.geometry_coordinates_0_0_136_0, geolocation.geometry_coordinates_0_0_136_1, geolocation.geometry_coordinates_0_0_137_0, geolocation.geometry_coordinates_0_0_137_1, geolocation.geometry_coordinates_0_0_138_0, geolocation.geometry_coordinates_0_0_138_1, geolocation.geometry_coordinates_0_0_139_0, geolocation.geometry_coordinates_0_0_139_1, geolocation.geometry_coordinates_0_0_140_0, geolocation.geometry_coordinates_0_0_140_1, geolocation.geometry_coordinates_0_0_141_0, geolocation.geometry_coordinates_0_0_141_1, geolocation.geometry_coordinates_0_0_142_0, geolocation.geometry_coordinates_0_0_142_1, geolocation.geometry_coordinates_0_0_143_0, geolocation.geometry_coordinates_0_0_143_1, geolocation.geometry_coordinates_0_0_144_0, geolocation.geometry_coordinates_0_0_144_1, geolocation.geometry_coordinates_0_0_145_0, geolocation.geometry_coordinates_0_0_145_1, geolocation.geometry_coordinates_0_0_146_0, geolocation.geometry_coordinates_0_0_146_1, geolocation.geometry_coordinates_0_0_147_0, geolocation.geometry_coordinates_0_0_147_1, geolocation.geometry_coordinates_0_0_148_0, geolocation.geometry_coordinates_0_0_148_1, geolocation.geometry_coordinates_0_0_149_0, geolocation.geometry_coordinates_0_0_149_1"
+"  ->  Hash Join  (cost=6944.24..14973.39 rows=278335 width=2899) (actual time=190.532..549.188 rows=9776 loops=1)"
+"        Hash Cond: (location.listing_id = room.listing_id)"
+"        ->  Hash Join  (cost=6490.57..13788.83 rows=278335 width=2911) (actual time=184.381..527.774 rows=9776 loops=1)"
+"              Hash Cond: ((geolocation.properties_neighbourhood)::text = (neighbourhood.neighbourhood)::text)"
+"              ->  Hash Join  (cost=6488.56..12987.38 rows=278335 width=2940) (actual time=184.336..512.942 rows=9776 loops=1)"
+"                    Hash Cond: ((location.neighbourhood_cleansed)::text = (geolocation.properties_neighbourhood)::text)"
+"                    ->  Hash Join  (cost=6479.55..12178.93 rows=278335 width=41) (actual time=184.219..486.032 rows=9776 loops=1)"
+"                          Hash Cond: (location.listing_id = room_amenity_1.listing_id)"
+"                          ->  Hash Join  (cost=492.67..5431.50 rows=289628 width=37) (actual time=7.561..236.109 rows=289628 loops=1)"
+"                                Hash Cond: (room_amenity.listing_id = location.listing_id)"
+"                                ->  Seq Scan on room_amenity  (cost=0.00..4178.28 rows=289628 width=4) (actual time=0.003..64.950 rows=289628 loops=1)"
+"                                ->  Hash  (cost=348.41..348.41 rows=11541 width=33) (actual time=7.535..7.536 rows=11541 loops=1)"
+"                                      Buckets: 16384  Batches: 1  Memory Usage: 889kB"
+"                                      ->  Seq Scan on location  (cost=0.00..348.41 rows=11541 width=33) (actual time=0.002..3.769 rows=11541 loops=1)"
+"                          ->  Hash  (cost=5848.24..5848.24 rows=11091 width=4) (actual time=176.578..176.578 rows=166 loops=1)"
+"                                Buckets: 16384  Batches: 1  Memory Usage: 134kB"
+"                                ->  HashAggregate  (cost=5626.42..5737.33 rows=11091 width=4) (actual time=175.277..176.513 rows=166 loops=1)"
+"                                      Group Key: room_amenity_1.listing_id"
+"                                      Filter: (count(room_amenity_1.amenity_id) > 50)"
+"                                      Rows Removed by Filter: 11366"
+"                                      ->  Seq Scan on room_amenity room_amenity_1  (cost=0.00..4178.28 rows=289628 width=8) (actual time=0.006..63.157 rows=289628 loops=1)"
+"                    ->  Hash  (cost=8.45..8.45 rows=45 width=2899) (actual time=0.102..0.102 rows=45 loops=1)"
+"                          Buckets: 1024  Batches: 1  Memory Usage: 64kB"
+"                          ->  Seq Scan on geolocation  (cost=0.00..8.45 rows=45 width=2899) (actual time=0.001..0.017 rows=45 loops=1)"
+"              ->  Hash  (cost=1.45..1.45 rows=45 width=21) (actual time=0.037..0.037 rows=45 loops=1)"
+"                    Buckets: 1024  Batches: 1  Memory Usage: 11kB"
+"                    ->  Seq Scan on neighbourhood  (cost=0.00..1.45 rows=45 width=21) (actual time=0.006..0.019 rows=45 loops=1)"
+"        ->  Hash  (cost=309.40..309.40 rows=11541 width=4) (actual time=6.127..6.127 rows=11541 loops=1)"
+"              Buckets: 16384  Batches: 1  Memory Usage: 534kB"
+"              ->  Index Only Scan using room_pkey on room  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.014..2.953 rows=11541 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 8.058 ms"
+"Execution time: 649.895 ms"
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+AFTER INDEX
+"HashAggregate  (cost=233436.07..233436.52 rows=45 width=2899) (actual time=609.785..609.904 rows=31 loops=1)"
+"  Group Key: geolocation.type, geolocation.geometry_type, geolocation.geometry_coordinates_0_0_0_0, geolocation.geometry_coordinates_0_0_0_1, geolocation.geometry_coordinates_0_0_1_0, geolocation.geometry_coordinates_0_0_1_1, geolocation.geometry_coordinates_0_0_2_0, geolocation.geometry_coordinates_0_0_2_1, geolocation.geometry_coordinates_0_0_3_0, geolocation.geometry_coordinates_0_0_3_1, geolocation.geometry_coordinates_0_0_4_0, geolocation.geometry_coordinates_0_0_4_1, geolocation.geometry_coordinates_0_0_5_0, geolocation.geometry_coordinates_0_0_5_1, geolocation.geometry_coordinates_0_0_6_0, geolocation.geometry_coordinates_0_0_6_1, geolocation.geometry_coordinates_0_0_7_0, geolocation.geometry_coordinates_0_0_7_1, geolocation.geometry_coordinates_0_0_8_0, geolocation.geometry_coordinates_0_0_8_1, geolocation.geometry_coordinates_0_0_9_0, geolocation.geometry_coordinates_0_0_9_1, geolocation.geometry_coordinates_0_0_10_0, geolocation.geometry_coordinates_0_0_10_1, geolocation.geometry_coordinates_0_0_11_0, geolocation.geometry_coordinates_0_0_11_1, geolocation.geometry_coordinates_0_0_12_0, geolocation.geometry_coordinates_0_0_12_1, geolocation.geometry_coordinates_0_0_13_0, geolocation.geometry_coordinates_0_0_13_1, geolocation.geometry_coordinates_0_0_14_0, geolocation.geometry_coordinates_0_0_14_1, geolocation.geometry_coordinates_0_0_15_0, geolocation.geometry_coordinates_0_0_15_1, geolocation.geometry_coordinates_0_0_16_0, geolocation.geometry_coordinates_0_0_16_1, geolocation.geometry_coordinates_0_0_17_0, geolocation.geometry_coordinates_0_0_17_1, geolocation.geometry_coordinates_0_0_18_0, geolocation.geometry_coordinates_0_0_18_1, geolocation.geometry_coordinates_0_0_19_0, geolocation.geometry_coordinates_0_0_19_1, geolocation.geometry_coordinates_0_0_20_0, geolocation.geometry_coordinates_0_0_20_1, geolocation.geometry_coordinates_0_0_21_0, geolocation.geometry_coordinates_0_0_21_1, geolocation.geometry_coordinates_0_0_22_0, geolocation.geometry_coordinates_0_0_22_1, geolocation.geometry_coordinates_0_0_23_0, geolocation.geometry_coordinates_0_0_23_1, geolocation.geometry_coordinates_0_0_24_0, geolocation.geometry_coordinates_0_0_24_1, geolocation.geometry_coordinates_0_0_25_0, geolocation.geometry_coordinates_0_0_25_1, geolocation.geometry_coordinates_0_0_26_0, geolocation.geometry_coordinates_0_0_26_1, geolocation.geometry_coordinates_0_0_27_0, geolocation.geometry_coordinates_0_0_27_1, geolocation.geometry_coordinates_0_0_28_0, geolocation.geometry_coordinates_0_0_28_1, geolocation.properties_neighbourhood, geolocation.properties_neighbourhood_group, geolocation.geometry_coordinates_0_0_29_0, geolocation.geometry_coordinates_0_0_29_1, geolocation.geometry_coordinates_0_0_30_0, geolocation.geometry_coordinates_0_0_30_1, geolocation.geometry_coordinates_0_0_31_0, geolocation.geometry_coordinates_0_0_31_1, geolocation.geometry_coordinates_0_0_32_0, geolocation.geometry_coordinates_0_0_32_1, geolocation.geometry_coordinates_0_0_33_0, geolocation.geometry_coordinates_0_0_33_1, geolocation.geometry_coordinates_0_0_34_0, geolocation.geometry_coordinates_0_0_34_1, geolocation.geometry_coordinates_0_0_35_0, geolocation.geometry_coordinates_0_0_35_1, geolocation.geometry_coordinates_0_0_36_0, geolocation.geometry_coordinates_0_0_36_1, geolocation.geometry_coordinates_0_0_37_0, geolocation.geometry_coordinates_0_0_37_1, geolocation.geometry_coordinates_0_0_38_0, geolocation.geometry_coordinates_0_0_38_1, geolocation.geometry_coordinates_0_0_39_0, geolocation.geometry_coordinates_0_0_39_1, geolocation.geometry_coordinates_0_0_40_0, geolocation.geometry_coordinates_0_0_40_1, geolocation.geometry_coordinates_0_0_41_0, geolocation.geometry_coordinates_0_0_41_1, geolocation.geometry_coordinates_0_0_42_0, geolocation.geometry_coordinates_0_0_42_1, geolocation.geometry_coordinates_0_0_43_0, geolocation.geometry_coordinates_0_0_43_1, geolocation.geometry_coordinates_0_0_44_0, geolocation.geometry_coordinates_0_0_44_1, geolocation.geometry_coordinates_0_0_45_0, geolocation.geometry_coordinates_0_0_45_1, geolocation.geometry_coordinates_0_0_46_0, geolocation.geometry_coordinates_0_0_46_1, geolocation.geometry_coordinates_0_0_47_0, geolocation.geometry_coordinates_0_0_47_1, geolocation.geometry_coordinates_0_0_48_0, geolocation.geometry_coordinates_0_0_48_1, geolocation.geometry_coordinates_0_0_49_0, geolocation.geometry_coordinates_0_0_49_1, geolocation.geometry_coordinates_0_0_50_0, geolocation.geometry_coordinates_0_0_50_1, geolocation.geometry_coordinates_0_0_51_0, geolocation.geometry_coordinates_0_0_51_1, geolocation.geometry_coordinates_0_0_52_0, geolocation.geometry_coordinates_0_0_52_1, geolocation.geometry_coordinates_0_0_53_0, geolocation.geometry_coordinates_0_0_53_1, geolocation.geometry_coordinates_0_0_54_0, geolocation.geometry_coordinates_0_0_54_1, geolocation.geometry_coordinates_0_0_55_0, geolocation.geometry_coordinates_0_0_55_1, geolocation.geometry_coordinates_0_0_56_0, geolocation.geometry_coordinates_0_0_56_1, geolocation.geometry_coordinates_0_0_57_0, geolocation.geometry_coordinates_0_0_57_1, geolocation.geometry_coordinates_0_0_58_0, geolocation.geometry_coordinates_0_0_58_1, geolocation.geometry_coordinates_0_0_59_0, geolocation.geometry_coordinates_0_0_59_1, geolocation.geometry_coordinates_0_0_60_0, geolocation.geometry_coordinates_0_0_60_1, geolocation.geometry_coordinates_0_0_61_0, geolocation.geometry_coordinates_0_0_61_1, geolocation.geometry_coordinates_0_0_62_0, geolocation.geometry_coordinates_0_0_62_1, geolocation.geometry_coordinates_0_0_63_0, geolocation.geometry_coordinates_0_0_63_1, geolocation.geometry_coordinates_0_0_64_0, geolocation.geometry_coordinates_0_0_64_1, geolocation.geometry_coordinates_0_0_65_0, geolocation.geometry_coordinates_0_0_65_1, geolocation.geometry_coordinates_0_0_66_0, geolocation.geometry_coordinates_0_0_66_1, geolocation.geometry_coordinates_0_0_67_0, geolocation.geometry_coordinates_0_0_67_1, geolocation.geometry_coordinates_0_0_68_0, geolocation.geometry_coordinates_0_0_68_1, geolocation.geometry_coordinates_0_0_69_0, geolocation.geometry_coordinates_0_0_69_1, geolocation.geometry_coordinates_0_0_70_0, geolocation.geometry_coordinates_0_0_70_1, geolocation.geometry_coordinates_0_0_71_0, geolocation.geometry_coordinates_0_0_71_1, geolocation.geometry_coordinates_0_0_72_0, geolocation.geometry_coordinates_0_0_72_1, geolocation.geometry_coordinates_0_0_73_0, geolocation.geometry_coordinates_0_0_73_1, geolocation.geometry_coordinates_0_0_74_0, geolocation.geometry_coordinates_0_0_74_1, geolocation.geometry_coordinates_0_0_75_0, geolocation.geometry_coordinates_0_0_75_1, geolocation.geometry_coordinates_0_0_76_0, geolocation.geometry_coordinates_0_0_76_1, geolocation.geometry_coordinates_0_0_77_0, geolocation.geometry_coordinates_0_0_77_1, geolocation.geometry_coordinates_0_0_78_0, geolocation.geometry_coordinates_0_0_78_1, geolocation.geometry_coordinates_0_0_79_0, geolocation.geometry_coordinates_0_0_79_1, geolocation.geometry_coordinates_0_0_80_0, geolocation.geometry_coordinates_0_0_80_1, geolocation.geometry_coordinates_0_0_81_0, geolocation.geometry_coordinates_0_0_81_1, geolocation.geometry_coordinates_0_0_82_0, geolocation.geometry_coordinates_0_0_82_1, geolocation.geometry_coordinates_0_0_83_0, geolocation.geometry_coordinates_0_0_83_1, geolocation.geometry_coordinates_0_0_84_0, geolocation.geometry_coordinates_0_0_84_1, geolocation.geometry_coordinates_0_0_85_0, geolocation.geometry_coordinates_0_0_85_1, geolocation.geometry_coordinates_0_0_86_0, geolocation.geometry_coordinates_0_0_86_1, geolocation.geometry_coordinates_0_0_87_0, geolocation.geometry_coordinates_0_0_87_1, geolocation.geometry_coordinates_0_0_88_0, geolocation.geometry_coordinates_0_0_88_1, geolocation.geometry_coordinates_0_0_89_0, geolocation.geometry_coordinates_0_0_89_1, geolocation.geometry_coordinates_0_0_90_0, geolocation.geometry_coordinates_0_0_90_1, geolocation.geometry_coordinates_0_0_91_0, geolocation.geometry_coordinates_0_0_91_1, geolocation.geometry_coordinates_0_0_92_0, geolocation.geometry_coordinates_0_0_92_1, geolocation.geometry_coordinates_0_0_93_0, geolocation.geometry_coordinates_0_0_93_1, geolocation.geometry_coordinates_0_0_94_0, geolocation.geometry_coordinates_0_0_94_1, geolocation.geometry_coordinates_0_0_95_0, geolocation.geometry_coordinates_0_0_95_1, geolocation.geometry_coordinates_0_0_96_0, geolocation.geometry_coordinates_0_0_96_1, geolocation.geometry_coordinates_0_0_97_0, geolocation.geometry_coordinates_0_0_97_1, geolocation.geometry_coordinates_0_0_98_0, geolocation.geometry_coordinates_0_0_98_1, geolocation.geometry_coordinates_0_0_99_0, geolocation.geometry_coordinates_0_0_99_1, geolocation.geometry_coordinates_0_0_100_0, geolocation.geometry_coordinates_0_0_100_1, geolocation.geometry_coordinates_0_0_101_0, geolocation.geometry_coordinates_0_0_101_1, geolocation.geometry_coordinates_0_0_102_0, geolocation.geometry_coordinates_0_0_102_1, geolocation.geometry_coordinates_0_0_103_0, geolocation.geometry_coordinates_0_0_103_1, geolocation.geometry_coordinates_0_0_104_0, geolocation.geometry_coordinates_0_0_104_1, geolocation.geometry_coordinates_0_0_105_0, geolocation.geometry_coordinates_0_0_105_1, geolocation.geometry_coordinates_0_0_106_0, geolocation.geometry_coordinates_0_0_106_1, geolocation.geometry_coordinates_0_0_107_0, geolocation.geometry_coordinates_0_0_107_1, geolocation.geometry_coordinates_0_0_108_0, geolocation.geometry_coordinates_0_0_108_1, geolocation.geometry_coordinates_0_0_109_0, geolocation.geometry_coordinates_0_0_109_1, geolocation.geometry_coordinates_0_0_110_0, geolocation.geometry_coordinates_0_0_110_1, geolocation.geometry_coordinates_0_0_111_0, geolocation.geometry_coordinates_0_0_111_1, geolocation.geometry_coordinates_0_0_112_0, geolocation.geometry_coordinates_0_0_112_1, geolocation.geometry_coordinates_0_0_113_0, geolocation.geometry_coordinates_0_0_113_1, geolocation.geometry_coordinates_0_0_114_0, geolocation.geometry_coordinates_0_0_114_1, geolocation.geometry_coordinates_0_0_115_0, geolocation.geometry_coordinates_0_0_115_1, geolocation.geometry_coordinates_0_0_116_0, geolocation.geometry_coordinates_0_0_116_1, geolocation.geometry_coordinates_0_0_117_0, geolocation.geometry_coordinates_0_0_117_1, geolocation.geometry_coordinates_0_0_118_0, geolocation.geometry_coordinates_0_0_118_1, geolocation.geometry_coordinates_0_0_119_0, geolocation.geometry_coordinates_0_0_119_1, geolocation.geometry_coordinates_0_0_120_0, geolocation.geometry_coordinates_0_0_120_1, geolocation.geometry_coordinates_0_0_121_0, geolocation.geometry_coordinates_0_0_121_1, geolocation.geometry_coordinates_0_0_122_0, geolocation.geometry_coordinates_0_0_122_1, geolocation.geometry_coordinates_0_0_123_0, geolocation.geometry_coordinates_0_0_123_1, geolocation.geometry_coordinates_0_0_124_0, geolocation.geometry_coordinates_0_0_124_1, geolocation.geometry_coordinates_0_0_125_0, geolocation.geometry_coordinates_0_0_125_1, geolocation.geometry_coordinates_0_0_126_0, geolocation.geometry_coordinates_0_0_126_1, geolocation.geometry_coordinates_0_0_127_0, geolocation.geometry_coordinates_0_0_127_1, geolocation.geometry_coordinates_0_0_128_0, geolocation.geometry_coordinates_0_0_128_1, geolocation.geometry_coordinates_0_0_129_0, geolocation.geometry_coordinates_0_0_129_1, geolocation.geometry_coordinates_0_0_130_0, geolocation.geometry_coordinates_0_0_130_1, geolocation.geometry_coordinates_0_0_131_0, geolocation.geometry_coordinates_0_0_131_1, geolocation.geometry_coordinates_0_0_132_0, geolocation.geometry_coordinates_0_0_132_1, geolocation.geometry_coordinates_0_0_133_0, geolocation.geometry_coordinates_0_0_133_1, geolocation.geometry_coordinates_0_0_134_0, geolocation.geometry_coordinates_0_0_134_1, geolocation.geometry_coordinates_0_0_135_0, geolocation.geometry_coordinates_0_0_135_1, geolocation.geometry_coordinates_0_0_136_0, geolocation.geometry_coordinates_0_0_136_1, geolocation.geometry_coordinates_0_0_137_0, geolocation.geometry_coordinates_0_0_137_1, geolocation.geometry_coordinates_0_0_138_0, geolocation.geometry_coordinates_0_0_138_1, geolocation.geometry_coordinates_0_0_139_0, geolocation.geometry_coordinates_0_0_139_1, geolocation.geometry_coordinates_0_0_140_0, geolocation.geometry_coordinates_0_0_140_1, geolocation.geometry_coordinates_0_0_141_0, geolocation.geometry_coordinates_0_0_141_1, geolocation.geometry_coordinates_0_0_142_0, geolocation.geometry_coordinates_0_0_142_1, geolocation.geometry_coordinates_0_0_143_0, geolocation.geometry_coordinates_0_0_143_1, geolocation.geometry_coordinates_0_0_144_0, geolocation.geometry_coordinates_0_0_144_1, geolocation.geometry_coordinates_0_0_145_0, geolocation.geometry_coordinates_0_0_145_1, geolocation.geometry_coordinates_0_0_146_0, geolocation.geometry_coordinates_0_0_146_1, geolocation.geometry_coordinates_0_0_147_0, geolocation.geometry_coordinates_0_0_147_1, geolocation.geometry_coordinates_0_0_148_0, geolocation.geometry_coordinates_0_0_148_1, geolocation.geometry_coordinates_0_0_149_0, geolocation.geometry_coordinates_0_0_149_1"
+"  ->  Hash Join  (cost=10518.18..21901.47 rows=278335 width=2899) (actual time=161.455..509.909 rows=9776 loops=1)"
+"        Hash Cond: (location.listing_id = room.listing_id)"
+"        ->  Hash Join  (cost=10064.51..20716.91 rows=278335 width=2911) (actual time=155.338..489.464 rows=9776 loops=1)"
+"              Hash Cond: ((geolocation.properties_neighbourhood)::text = (neighbourhood.neighbourhood)::text)"
+"              ->  Hash Join  (cost=10055.14..19908.10 rows=278335 width=2940) (actual time=155.294..475.326 rows=9776 loops=1)"
+"                    Hash Cond: ((location.neighbourhood_cleansed)::text = (geolocation.properties_neighbourhood)::text)"
+"                    ->  Hash Join  (cost=10034.76..19088.28 rows=278335 width=41) (actual time=155.208..449.066 rows=9776 loops=1)"
+"                          Hash Cond: (location.listing_id = room_amenity_1.listing_id)"
+"                          ->  Hash Join  (cost=693.32..8986.29 rows=289628 width=37) (actual time=8.521..230.445 rows=289628 loops=1)"
+"                                Hash Cond: (room_amenity.listing_id = location.listing_id)"
+"                                ->  Index Only Scan using pk_room_amenity on room_amenity  (cost=0.42..7532.84 rows=289628 width=4) (actual time=0.012..77.297 rows=289628 loops=1)"
+"                                      Heap Fetches: 0"
+"                                ->  Hash  (cost=548.63..548.63 rows=11541 width=33) (actual time=8.487..8.487 rows=11541 loops=1)"
+"                                      Buckets: 16384  Batches: 1  Memory Usage: 889kB"
+"                                      ->  Index Scan using location_pkey on location  (cost=0.29..548.63 rows=11541 width=33) (actual time=0.008..4.654 rows=11541 loops=1)"
+"                          ->  Hash  (cost=9202.80..9202.80 rows=11091 width=4) (actual time=143.595..143.596 rows=166 loops=1)"
+"                                Buckets: 16384  Batches: 1  Memory Usage: 134kB"
+"                                ->  GroupAggregate  (cost=0.42..9091.89 rows=11091 width=4) (actual time=1.549..143.517 rows=166 loops=1)"
+"                                      Group Key: room_amenity_1.listing_id"
+"                                      Filter: (count(room_amenity_1.amenity_id) > 50)"
+"                                      Rows Removed by Filter: 11366"
+"                                      ->  Index Only Scan using pk_room_amenity on room_amenity room_amenity_1  (cost=0.42..7532.84 rows=289628 width=8) (actual time=0.011..71.438 rows=289628 loops=1)"
+"                                            Heap Fetches: 0"
+"                    ->  Hash  (cost=19.82..19.82 rows=45 width=2899) (actual time=0.072..0.072 rows=45 loops=1)"
+"                          Buckets: 1024  Batches: 1  Memory Usage: 64kB"
+"                          ->  Index Scan using geolocation_pkey on geolocation  (cost=0.14..19.82 rows=45 width=2899) (actual time=0.004..0.026 rows=45 loops=1)"
+"              ->  Hash  (cost=8.81..8.81 rows=45 width=21) (actual time=0.035..0.035 rows=45 loops=1)"
+"                    Buckets: 1024  Batches: 1  Memory Usage: 11kB"
+"                    ->  Index Only Scan using neighbourhoods_pkey on neighbourhood  (cost=0.14..8.81 rows=45 width=21) (actual time=0.006..0.017 rows=45 loops=1)"
+"                          Heap Fetches: 0"
+"        ->  Hash  (cost=309.40..309.40 rows=11541 width=4) (actual time=6.094..6.095 rows=11541 loops=1)"
+"              Buckets: 16384  Batches: 1  Memory Usage: 534kB"
+"              ->  Index Only Scan using room_pkey on room  (cost=0.29..309.40 rows=11541 width=4) (actual time=0.013..2.938 rows=11541 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 8.000 ms"
+"Execution time: 610.465 ms"
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/* Query 6: w/out index:649.895 ms,w/index:610.465 ms*/
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/*Σε αυτό το query βαλαμε ευρετήριο στο πεδίο neighbourhood_cleansed του location,καθως όλα τα πεδία αυτού του query είναι primary keys,βλέπουμε μια μικρή βελτίωση στον χρόνο εκτέλεσης*/
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Query 7
+
+EXPLAIN ANALYZE
+SELECT COUNT(listing.id) as hosts_with_no_declared_listings
+FROM Host
+FULL OUTER JOIN Listing
+ON Host.id=Listing.host_id
+WHERE Listing.id IS NULL
+
+BEFORE INDEX
+-----------------------------------------------------------------------------------------------------------------------------------------------
+"Aggregate  (cost=3215.99..3216.00 rows=1 width=8) (actual time=39.110..39.110 rows=1 loops=1)"
+"  ->  Hash Full Join  (cost=255.26..3215.99 rows=1 width=4) (actual time=39.106..39.106 rows=0 loops=1)"
+"        Hash Cond: (listing.host_id = host.id)"
+"        Filter: (listing.id IS NULL)"
+"        Rows Removed by Filter: 11541"
+"        ->  Seq Scan on listing  (cost=0.00..2930.41 rows=11541 width=8) (actual time=0.009..24.733 rows=11541 loops=1)"
+"        ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=10.539..10.539 rows=6363 loops=1)"
+"              Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"              ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.050..8.695 rows=6363 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 1.959 ms"
+"Execution time: 39.720 ms"
+------------------------------------------------------------------------------------------------------------------------------------------------
+AFTER INDEX
+
+"Aggregate  (cost=3215.99..3216.00 rows=1 width=8) (actual time=16.845..16.845 rows=1 loops=1)"
+"  ->  Hash Full Join  (cost=255.26..3215.99 rows=1 width=4) (actual time=16.842..16.842 rows=0 loops=1)"
+"        Hash Cond: (listing.host_id = host.id)"
+"        Filter: (listing.id IS NULL)"
+"        Rows Removed by Filter: 11541"
+"        ->  Seq Scan on listing  (cost=0.00..2930.41 rows=11541 width=8) (actual time=0.006..9.706 rows=11541 loops=1)"
+"        ->  Hash  (cost=175.73..175.73 rows=6363 width=4) (actual time=3.456..3.456 rows=6363 loops=1)"
+"              Buckets: 8192  Batches: 1  Memory Usage: 288kB"
+"              ->  Index Only Scan using host_pkey on host  (cost=0.28..175.73 rows=6363 width=4) (actual time=0.018..1.623 rows=6363 loops=1)"
+"                    Heap Fetches: 0"
+"Planning time: 0.127 ms"
+"Execution time: 16.882 ms"
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+/* Query 7: w/out index:39.720 ms, w/index:16.882 ms */
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+/*Σε αυτό το query ,βάλαμε ευρετήριο στο πεδιο host_id του listing και μόνο διοτι το id του host είναι primary key.Οπως βλέπουμε ο χρόνος εκτέλεσης
+είναι πολυ καλύτερος*/
+----------------------------------------------------------------------------------------------------------------------------------------------------
